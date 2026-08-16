@@ -1,0 +1,147 @@
+name: Release
+
+# Tag-driven: push v1.2.3 and this builds every target, assembles the npm packages and publishes
+# them. Nothing publishes on a branch push, and the workflow can be run by hand for a dry run.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and pack without publishing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The runners ship a Rust toolchain, so only the extra target is added - no third-party
+      # action is involved in producing a binary that gets published.
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+
+      # Linkers the host toolchain does not have on its own.
+      - name: Install cross linkers
+        if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
+
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Collect the binary
+        shell: bash
+        run: |
+          mkdir -p "artifacts/${{ matrix.target }}"
+          if [ -f "target/${{ matrix.target }}/release/aiwg.exe" ]; then
+            cp "target/${{ matrix.target }}/release/aiwg.exe" "artifacts/${{ matrix.target }}/"
+          else
+            cp "target/${{ matrix.target }}/release/aiwg" "artifacts/${{ matrix.target }}/"
+          fi
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.target }}
+          path: artifacts/
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Lets npm record where the package was built from, without a long-lived token.
+      id-token: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download every binary
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Read the version from the tag
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then version="0.0.0-dry-run"; fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      # The crate is the source of truth for the version; a tag that disagrees with Cargo.toml
+      # would publish npm packages that no commit describes.
+      - name: Check the tag matches the crate
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          crate=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          tag="${GITHUB_REF_NAME#v}"
+          test "$crate" = "$tag" || {
+            echo "::error::Cargo.toml is $crate but the tag is $tag"; exit 1; }
+
+      - name: Assemble the npm packages
+        run: node npm/build.mjs artifacts "${{ steps.version.outputs.value }}"
+
+      # Platform packages first: the wrapper depends on them, and a wrapper published against
+      # versions that do not exist yet is broken for anyone who installs in that window.
+      - name: Publish
+        if: github.ref_type == 'tag' && inputs.dry_run != true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in npm/dist/*/; do
+            [ "$(basename "$dir")" = "ai-watermark-guard" ] && continue
+            npm publish "$dir" --access public --provenance
+          done
+          npm publish npm/dist/ai-watermark-guard --access public --provenance
+
+      - name: Pack only
+        if: github.ref_type != 'tag' || inputs.dry_run == true
+        run: |
+          for dir in npm/dist/*/; do npm pack "$dir" --pack-destination /tmp; done
+          ls -la /tmp/*.tgz

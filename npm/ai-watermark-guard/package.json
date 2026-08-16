@@ -1,0 +1,44 @@
+{
+  "name": "ai-watermark-guard",
+  "version": "0.1.0",
+  "description": "Finds and fixes the characters that mark text as machine-written - em dashes, curly quotes, ellipses - plus invisible characters and mojibake, across every file in a repo and in commit messages.",
+  "keywords": [
+    "lint",
+    "unicode",
+    "mojibake",
+    "zero-width",
+    "git-hook",
+    "commit-msg",
+    "pre-commit",
+    "text"
+  ],
+  "homepage": "https://soroush.tech/ai-watermark-guard",
+  "bugs": "https://github.com/soroush-tech/ai-watermark-guard/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/soroush-tech/ai-watermark-guard.git"
+  },
+  "license": "MIT",
+  "author": "Masoud Soroush <masoud@soroush.tech>",
+  "bin": {
+    "ai-watermark-guard": "bin/cli.js",
+    "aiwg": "bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@soroush.tech/ai-watermark-guard-win32-x64": "0.1.0",
+    "@soroush.tech/ai-watermark-guard-win32-arm64": "0.1.0",
+    "@soroush.tech/ai-watermark-guard-darwin-x64": "0.1.0",
+    "@soroush.tech/ai-watermark-guard-darwin-arm64": "0.1.0",
+    "@soroush.tech/ai-watermark-guard-linux-x64": "0.1.0",
+    "@soroush.tech/ai-watermark-guard-linux-arm64": "0.1.0",
+    "@soroush.tech/ai-watermark-guard-linux-x64-musl": "0.1.0"
+  }
+}
