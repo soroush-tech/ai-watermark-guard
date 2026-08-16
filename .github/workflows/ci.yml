@@ -51,3 +51,48 @@ jobs:
 
       - name: Guard this repository
         run: ./target/release/aiwg --all
+
+  # Rust is one of the three languages SonarQube Cloud's Automatic Analysis does not cover, so the
+  # scan runs here rather than on push from the GitHub App. It is also the only route by which
+  # coverage reaches Sonar at all - Automatic Analysis cannot ingest a report.
+  #
+  # Skipped for a pull request from a fork, which cannot read the token: the step would fail on a
+  # contribution rather than on anything wrong with it.
+  sonar:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Full history, so Sonar can tell new code from old and gate on the new.
+          fetch-depth: 0
+
+      # Findings for Sonar to import, not a gate: `--deny warnings` is deliberately absent, and a
+      # non-zero exit is swallowed so the report is still written. The `test` job above is what
+      # fails the build on a lint, and it runs on all three platforms rather than just this one.
+      #
+      # The clean is load-bearing. Clippy reports diagnostics only for what it actually compiles,
+      # so a cached crate produces an empty report - a green scan that checked nothing. A fresh
+      # runner compiles anyway today; this keeps that true if a cargo cache is ever added here.
+      - name: Collect the Clippy report
+        run: |
+          cargo clean --package ai-watermark-guard
+          cargo clippy --all-targets --message-format=json > clippy-report.json || true
+
+      - name: Install the coverage tooling
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
+
+      - name: Coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
