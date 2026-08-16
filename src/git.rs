@@ -150,7 +150,7 @@ impl Git {
 }
 
 #[cfg(test)]
-mod tests {
+mod git_test {
     use super::*;
 
     #[test]

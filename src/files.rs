@@ -42,50 +42,5 @@ pub fn is_fixable(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    #[test]
-    fn fixes_prose_and_refuses_everything_else() {
-        for name in [
-            "notes.md",
-            "NOTES.MD",
-            "readme.markdown",
-            "a.txt",
-            "b.rst",
-            "c.adoc",
-        ] {
-            assert!(is_fixable(&PathBuf::from(name)), "{name}");
-        }
-        for name in [
-            "a.ts", "a.tsx", "a.js", "a.json", "a.yml", "a.toml", "a.rs", "Makefile",
-        ] {
-            assert!(!is_fixable(&PathBuf::from(name)), "{name}");
-        }
-    }
-
-    #[test]
-    fn classifies_what_it_reads() {
-        let dir = std::env::temp_dir().join("aiwg-files-test");
-        fs::create_dir_all(&dir).expect("temp dir");
-
-        let text = dir.join("a.txt");
-        fs::write(&text, "plain").expect("write");
-        assert!(matches!(read(&text).expect("read"), Content::Text(body) if body == "plain"));
-
-        let binary = dir.join("b.bin");
-        fs::write(&binary, [0x41, 0x00, 0x42]).expect("write");
-        assert!(matches!(read(&binary).expect("read"), Content::Binary));
-
-        let invalid = dir.join("c.txt");
-        fs::write(&invalid, [0xE2, 0x28, 0xA1]).expect("write");
-        assert!(matches!(
-            read(&invalid).expect("read"),
-            Content::InvalidUtf8
-        ));
-
-        assert!(read(&dir.join("missing.txt")).is_err());
-        fs::remove_dir_all(&dir).ok();
-    }
-}
+#[path = "files_test.rs"]
+mod files_test;

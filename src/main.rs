@@ -487,7 +487,7 @@ fn report(cli: &Cli, results: &[Scanned], root: Option<&Path>, tiers: Tiers) -> 
 }
 
 #[cfg(test)]
-mod tests {
+mod main_test {
     use super::*;
 
     #[test]
