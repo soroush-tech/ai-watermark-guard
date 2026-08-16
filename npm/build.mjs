@@ -64,6 +64,7 @@ for (const target of TARGETS) {
         name,
         version,
         description: `The ${target.suffix} binary for ai-watermark-guard.`,
+        homepage: 'https://soroush.tech/ai-watermark-guard',
         repository: {
           type: 'git',
           url: 'git+https://github.com/soroush-tech/ai-watermark-guard.git',
@@ -80,6 +81,17 @@ for (const target of TARGETS) {
     )}\n`
   )
   cpSync(join(root, 'LICENSE'), join(out, 'LICENSE'))
+
+  // npm renders a package page even for a binary-only package; without this it says "no readme"
+  // and gives the reader nothing pointing back at the package they should actually install.
+  writeFileSync(
+    join(out, 'README.md'),
+    `# ${name}\n\n` +
+      `The ${target.suffix} binary for ` +
+      `[ai-watermark-guard](https://soroush.tech/ai-watermark-guard).\n\n` +
+      'Not meant to be installed directly: install `ai-watermark-guard`, and the package\n' +
+      'manager picks the one binary package that matches the machine.\n'
+  )
   console.log(`built ${name}`)
 }
 

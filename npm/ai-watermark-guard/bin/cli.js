@@ -10,14 +10,14 @@
 
 const { spawnSync } = require('node:child_process')
 
-const SCOPE = '@soroush.tech/ai-watermark-guard'
+const BASE = '@soroush.tech/ai-watermark-guard'
 const { platform, arch } = process
 const binary = platform === 'win32' ? 'aiwg.exe' : 'aiwg'
 
 // glibc first, musl second. On Alpine the glibc package is not installed at all - the `libc` field
 // tells the package manager to skip it - so the resolve below falls through to the musl build.
-const candidates = [`${SCOPE}-${platform}-${arch}`]
-if (platform === 'linux') candidates.push(`${SCOPE}-${platform}-${arch}-musl`)
+const candidates = [`${BASE}-${platform}-${arch}`]
+if (platform === 'linux') candidates.push(`${BASE}-${platform}-${arch}-musl`)
 
 let executable = null
 for (const candidate of candidates) {
