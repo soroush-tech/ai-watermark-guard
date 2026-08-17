@@ -35,6 +35,13 @@ jobs:
       - name: Test
         run: cargo test --all-targets
 
+      # The vitest suite covering the npm publishing glue. The runners' preinstalled Node is
+      # plenty; `npm ci` keeps the install to the lockfile.
+      - name: Test the npm glue
+        run: |
+          npm ci
+          npm test
+
   # The guard runs against its own repository. Its tables are code points, so a clean result here
   # means the crate holds none of the characters it bans.
   self:
