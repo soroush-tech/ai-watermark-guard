@@ -360,10 +360,9 @@ fn check_files(
         .filter(|path| !partially_staged.contains(path))
         .collect();
 
-    if cli.staged && cli.fix && !cli.no_restage {
-        if let Some(repo) = repo {
-            repo.stage(&fixed)?;
-        }
+    // Staged mode cannot get this far without a repository, so the filter never drops one here.
+    if let Some(repo) = repo.filter(|_| cli.staged && cli.fix && !cli.no_restage) {
+        repo.stage(&fixed)?;
     }
 
     let remaining: usize = results.iter().map(|result| result.findings.len()).sum();

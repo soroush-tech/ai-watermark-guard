@@ -30,10 +30,9 @@ impl Git {
             return None;
         }
         let root = String::from_utf8(output.stdout).ok()?.trim().to_string();
-        if root.is_empty() {
-            return None;
-        }
-        Some(Git {
+        // No git prints an empty toplevel and succeeds; the guard is for the shape, not a path any
+        // real run takes.
+        (!root.is_empty()).then(|| Git {
             root: PathBuf::from(root),
         })
     }
@@ -104,11 +103,8 @@ impl Git {
     pub fn merge_base(&self, branch: &str) -> Option<String> {
         let base = self.run(&["merge-base", branch, "HEAD"]).ok()?;
         let base = base.trim().to_string();
-        if base.is_empty() {
-            None
-        } else {
-            Some(base)
-        }
+        // Real git never succeeds while printing nothing; the guard is for the shape.
+        (!base.is_empty()).then_some(base)
     }
 
     pub fn stage(&self, paths: &[String]) -> Result<(), String> {
@@ -161,11 +157,16 @@ mod git_test {
 
     #[test]
     fn finds_no_repository_outside_one() {
-        // The temp directory is not a repository on any platform this ships to.
-        let outside = std::env::temp_dir();
-        // It may sit inside one on a developer's machine, so only the shape is asserted.
-        if let Some(git) = Git::discover(&outside) {
-            assert!(git.root().exists());
-        }
+        // A plain directory under temp, which is not inside a repository on any machine this
+        // builds on.
+        let outside = std::env::temp_dir().join("aiwg-unit-no-repo");
+        std::fs::create_dir_all(&outside).expect("create dir");
+        assert!(Git::discover(&outside).is_none());
+    }
+
+    #[test]
+    fn discovers_the_repository_holding_this_crate() {
+        let git = Git::discover(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("a repository");
+        assert!(git.root().join("Cargo.toml").exists());
     }
 }

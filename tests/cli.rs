@@ -4,7 +4,7 @@
 //! its own guard, and a test file full of em dashes would fail that run.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const EXE: &str = env!("CARGO_BIN_EXE_aiwg");
@@ -27,6 +27,47 @@ fn run(args: &[&str]) -> Output {
 
 fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).to_string()
+}
+
+fn run_in(dir: &Path, args: &[&str]) -> Output {
+    Command::new(EXE)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("run aiwg")
+}
+
+/// Runs git in `dir` with a fixed identity and no user or system config, so a machine with
+/// commit signing or hooks configured globally does not leak into the fixture.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", dir.join("no-global-config"))
+        .env("GIT_CONFIG_SYSTEM", dir.join("no-system-config"))
+        .env("GIT_AUTHOR_NAME", "test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+        .env("GIT_COMMITTER_NAME", "test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+/// A workspace that is also a repository on a branch named main.
+fn repo(name: &str) -> PathBuf {
+    let dir = workspace(name);
+    git(&dir, &["init", "-q", "-b", "main"]);
+    dir
 }
 
 #[test]
@@ -241,6 +282,358 @@ fn rejects_an_unknown_tier_and_a_missing_config() {
     assert_eq!(
         run(&[path, "--config", "no-such-file.toml"]).status.code(),
         Some(2)
+    );
+}
+
+#[test]
+fn scans_every_tracked_file_with_all() {
+    let dir = repo("all-mode");
+    fs::write(
+        dir.join("tracked.md"),
+        format!("a {} b\n", character(0x2014)),
+    )
+    .expect("write");
+    git(&dir, &["add", "tracked.md"]);
+    git(&dir, &["commit", "-qm", "add tracked"]);
+    fs::write(dir.join("stray.md"), format!("a {} b\n", character(0x2014))).expect("write");
+
+    let output = run_in(&dir, &["--all"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("tracked.md"), "{text}");
+    assert!(
+        !text.contains("stray.md"),
+        "untracked is not tracked: {text}"
+    );
+}
+
+#[test]
+fn scans_only_what_is_staged() {
+    let dir = repo("staged-mode");
+    fs::write(dir.join("committed.md"), "plain\n").expect("write");
+    git(&dir, &["add", "committed.md"]);
+    git(&dir, &["commit", "-qm", "start"]);
+    fs::write(
+        dir.join("staged.md"),
+        format!("a {} b\n", character(0x2014)),
+    )
+    .expect("write");
+    git(&dir, &["add", "staged.md"]);
+    // A dirty file left unstaged is not part of the next commit and is not looked at.
+    fs::write(
+        dir.join("committed.md"),
+        format!("a {} b\n", character(0x2014)),
+    )
+    .expect("write");
+
+    let output = run_in(&dir, &["--staged"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("staged.md"), "{text}");
+    assert!(!text.contains("committed.md"), "{text}");
+}
+
+#[test]
+fn fixes_and_restages_a_staged_file() {
+    let dir = repo("restage");
+    fs::write(dir.join("notes.md"), format!("a {} b\n", character(0x2014))).expect("write");
+    git(&dir, &["add", "notes.md"]);
+
+    let output = run_in(&dir, &["--staged", "--fix"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        fs::read_to_string(dir.join("notes.md")).expect("read"),
+        "a - b\n"
+    );
+    // The fix went into the index too: index and working tree agree.
+    assert_eq!(git(&dir, &["diff", "--name-only"]), "");
+    assert!(git(&dir, &["diff", "--cached"]).contains("a - b"));
+}
+
+#[test]
+fn leaves_a_fixed_partially_staged_file_unstaged() {
+    let dir = repo("partial");
+    fs::write(dir.join("notes.md"), "start\n").expect("write");
+    git(&dir, &["add", "notes.md"]);
+    git(&dir, &["commit", "-qm", "start"]);
+    fs::write(
+        dir.join("notes.md"),
+        format!("start\na {} b\n", character(0x2014)),
+    )
+    .expect("write");
+    git(&dir, &["add", "notes.md"]);
+    fs::write(
+        dir.join("notes.md"),
+        format!(
+            "start\na {} b\ntail kept out of this commit\n",
+            character(0x2014)
+        ),
+    )
+    .expect("write");
+
+    let output = run_in(&dir, &["--staged", "--fix"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("partially staged"),
+        "{}",
+        stderr(&output)
+    );
+    // Fixed on disk, but the fix was not swept into the index.
+    assert!(fs::read_to_string(dir.join("notes.md"))
+        .expect("read")
+        .contains("a - b"));
+    assert!(git(&dir, &["diff", "--name-only"]).contains("notes.md"));
+}
+
+#[test]
+fn leaves_restaging_to_the_caller_with_no_restage() {
+    let dir = repo("no-restage");
+    fs::write(dir.join("notes.md"), format!("a {} b\n", character(0x2014))).expect("write");
+    git(&dir, &["add", "notes.md"]);
+
+    let output = run_in(&dir, &["--staged", "--fix", "--no-restage"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        fs::read_to_string(dir.join("notes.md")).expect("read"),
+        "a - b\n"
+    );
+    assert!(
+        git(&dir, &["diff", "--name-only"]).contains("notes.md"),
+        "the fix stayed unstaged"
+    );
+}
+
+#[test]
+fn restages_nothing_when_nothing_was_fixed() {
+    let dir = repo("restage-clean");
+    fs::write(dir.join("notes.md"), "plain\n").expect("write");
+    git(&dir, &["add", "notes.md"]);
+
+    assert_eq!(run_in(&dir, &["--staged", "--fix"]).status.code(), Some(0));
+}
+
+#[test]
+fn scans_what_changed_since_a_revision() {
+    let dir = repo("since");
+    fs::write(dir.join("old.md"), "plain\n").expect("write");
+    git(&dir, &["add", "old.md"]);
+    git(&dir, &["commit", "-qm", "one"]);
+    fs::write(dir.join("new.md"), format!("a {} b\n", character(0x2014))).expect("write");
+    git(&dir, &["add", "new.md"]);
+    git(&dir, &["commit", "-qm", "two"]);
+
+    let output = run_in(&dir, &["--since", "HEAD~1"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("new.md"), "{text}");
+    assert!(!text.contains("old.md"), "{text}");
+
+    let bad = run_in(&dir, &["--since", "no-such-rev"]);
+    assert_eq!(bad.status.code(), Some(2));
+}
+
+#[test]
+fn diffs_against_the_merge_base_by_default() {
+    let dir = repo("merge-base");
+    fs::write(dir.join("base.md"), "plain\n").expect("write");
+    git(&dir, &["add", "base.md"]);
+    git(&dir, &["commit", "-qm", "base"]);
+    git(&dir, &["switch", "-q", "-c", "feature"]);
+    fs::write(
+        dir.join("feature.md"),
+        format!("a {} b\n", character(0x2014)),
+    )
+    .expect("write");
+    git(&dir, &["add", "feature.md"]);
+    git(&dir, &["commit", "-qm", "feature"]);
+
+    let output = run_in(&dir, &[]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("feature.md"), "{text}");
+    assert!(!text.contains("base.md"), "{text}");
+}
+
+#[test]
+fn errors_without_a_merge_base() {
+    let dir = repo("no-base");
+    fs::write(dir.join("notes.md"), "plain\n").expect("write");
+    git(&dir, &["add", "notes.md"]);
+    git(&dir, &["commit", "-qm", "start"]);
+
+    let output = run_in(&dir, &["--branch", "missing"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("no merge-base with 'missing'"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn finds_no_merge_base_across_disjoint_histories() {
+    let dir = repo("disjoint");
+    fs::write(dir.join("a.md"), "plain\n").expect("write");
+    git(&dir, &["add", "a.md"]);
+    git(&dir, &["commit", "-qm", "on main"]);
+    // An orphan branch shares no history with main, and git reports that silently: exit 1 with
+    // nothing on stderr, the one git failure in this tool that comes without a message.
+    git(&dir, &["switch", "-q", "--orphan", "other"]);
+    fs::write(dir.join("b.md"), "plain\n").expect("write");
+    git(&dir, &["add", "b.md"]);
+    git(&dir, &["commit", "-qm", "on other"]);
+
+    let output = run_in(&dir, &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("no merge-base with 'main'"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn excludes_configured_globs_in_every_mode() {
+    let dir = repo("excludes");
+    fs::write(
+        dir.join(".ai-watermark-guard.toml"),
+        "exclude = [\"vendor/**\"]\n",
+    )
+    .expect("write");
+    fs::create_dir_all(dir.join("vendor")).expect("create vendor");
+    fs::write(
+        dir.join("vendor/skip.md"),
+        format!("a {} b\n", character(0x2014)),
+    )
+    .expect("write");
+    fs::write(dir.join("notes.md"), format!("a {} b\n", character(0x2014))).expect("write");
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-qm", "start"]);
+
+    let all = run_in(&dir, &["--all"]);
+    assert_eq!(all.status.code(), Some(1));
+    let text = stdout(&all);
+    assert!(text.contains("notes.md"), "{text}");
+    assert!(!text.contains("skip.md"), "{text}");
+
+    // Explicit paths go through the same globs, relative to the repository root.
+    let explicit = run_in(&dir, &[dir.to_str().expect("path")]);
+    assert_eq!(explicit.status.code(), Some(1));
+    let text = stdout(&explicit);
+    assert!(text.contains("notes.md"), "{text}");
+    assert!(!text.contains("skip.md"), "{text}");
+}
+
+#[test]
+fn checks_a_range_of_commit_messages() {
+    let dir = repo("messages");
+    fs::write(dir.join("a.md"), "plain\n").expect("write");
+    git(&dir, &["add", "a.md"]);
+    git(&dir, &["commit", "-qm", "start"]);
+    git(
+        &dir,
+        &["commit", "--allow-empty", "-qm", "chore: still clean"],
+    );
+    let messy = format!("feat: adds {} dash", character(0x2014));
+    git(&dir, &["commit", "--allow-empty", "-qm", &messy]);
+
+    // The range holds a clean commit and a dirty one; only the dirty one is printed.
+    let dirty = run_in(&dir, &["--messages", "HEAD~2..HEAD"]);
+    assert_eq!(dirty.status.code(), Some(1));
+    let text = stdout(&dirty);
+    assert!(text.contains("feat: adds"), "{text}");
+    assert!(text.contains("U+2014"), "{text}");
+
+    let clean = run_in(&dir, &["--messages", "HEAD~1..HEAD~1"]);
+    assert_eq!(clean.status.code(), Some(0));
+    assert!(stdout(&clean).contains("clean"), "{}", stdout(&clean));
+}
+
+#[test]
+fn refuses_the_message_fix_even_when_unpushed_cannot_be_counted() {
+    let dir = repo("messages-fix");
+    fs::write(dir.join("a.md"), "plain\n").expect("write");
+    git(&dir, &["add", "a.md"]);
+    git(&dir, &["commit", "-qm", "start"]);
+
+    // The range does not resolve, so the unpushed count is unavailable - the refusal stands, just
+    // without the detail.
+    let output = run_in(&dir, &["--messages", "no-such..range", "--fix"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("cannot rewrite commit messages."),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn labels_the_tier_in_verbose_mode() {
+    let dir = workspace("verbose-tier");
+    fs::write(dir.join("notes.md"), format!("a {} b\n", character(0x2014))).expect("write");
+
+    let output = run(&[dir.to_str().expect("path"), "--verbose"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stdout(&output).contains("[punctuation]"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn caps_the_listing_and_counts_the_rest() {
+    let dir = workspace("cap");
+    let many: String = (0..55)
+        .map(|_| format!("{}\n", character(0x2014)))
+        .collect();
+    fs::write(dir.join("a.md"), &many).expect("write");
+    fs::write(dir.join("b.md"), format!("{}\n", character(0x2014))).expect("write");
+
+    let output = run(&[dir.to_str().expect("path")]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("... and 6 more"), "{text}");
+    assert!(text.contains("56 finding(s)"), "{text}");
+}
+
+#[test]
+fn warns_about_invalid_utf8_without_verbose() {
+    let dir = workspace("invalid-quiet");
+    fs::write(dir.join("broken.txt"), [0xE2, 0x28, 0xA1]).expect("write");
+
+    let output = run(&[dir.to_str().expect("path")]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stderr(&output).contains("not valid UTF-8"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn needs_a_repository_or_paths() {
+    let dir = workspace("no-repo");
+
+    let output = run_in(&dir, &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("not a git repository"),
+        "{}",
+        stderr(&output)
     );
 }
 

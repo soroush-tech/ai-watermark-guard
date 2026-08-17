@@ -69,3 +69,25 @@ fn a_missing_explicit_config_is_an_error() {
 fn a_missing_default_config_falls_back_to_the_defaults() {
     assert!(Config::load(None, None).is_ok());
 }
+
+#[test]
+fn loads_an_explicit_config_file() {
+    let dir = std::env::temp_dir().join("aiwg-config-explicit");
+    fs::create_dir_all(&dir).expect("create dir");
+    let path = dir.join("guard.toml");
+    fs::write(&path, "rules = [\"invisible\"]\n").expect("write");
+
+    let config = Config::load(Some(&path), None).expect("load");
+    let tiers = config.tiers(None).expect("tiers");
+    assert!(tiers.invisible && !tiers.punctuation);
+}
+
+#[test]
+fn reports_a_config_file_it_cannot_read() {
+    // A directory passes the existence check but cannot be read as a file.
+    let dir = std::env::temp_dir().join("aiwg-config-unreadable");
+    fs::create_dir_all(&dir).expect("create dir");
+
+    let error = Config::load(Some(&dir), None).expect_err("read fails");
+    assert!(error.contains("could not read"), "{error}");
+}

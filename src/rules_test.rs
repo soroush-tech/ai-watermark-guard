@@ -45,6 +45,18 @@ fn replaces_typographic_punctuation() {
 }
 
 #[test]
+fn replaces_every_quote_variant() {
+    for point in [0x2018, 0x2019, 0x201A, 0x201B] {
+        let text = format!("a{}b", character(point));
+        assert_eq!(fix(&text, Tiers::default()), "a'b", "U+{point:04X}");
+    }
+    for point in [0x201C, 0x201D, 0x201E] {
+        let text = format!("a{}b", character(point));
+        assert_eq!(fix(&text, Tiers::default()), "a\"b", "U+{point:04X}");
+    }
+}
+
+#[test]
 fn keeps_the_characters_that_carry_meaning() {
     for point in ALWAYS_ALLOWED {
         let text = format!("a{}b", character(point));
