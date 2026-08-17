@@ -237,11 +237,7 @@ fn select(
         .into_iter()
         .filter(|path| {
             let Some(globs) = excludes else { return true };
-            let relative = root
-                .and_then(|root| path.strip_prefix(root).ok())
-                .unwrap_or(path)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let relative = relative_to(root, path).unwrap_or_default();
             !globs.is_match(&relative)
         })
         .collect();
@@ -387,9 +383,21 @@ fn check_files(
 
 fn relative_to(root: Option<&Path>, path: &Path) -> Option<String> {
     let relative = root
-        .and_then(|root| path.strip_prefix(root).ok())
-        .unwrap_or(path);
+        .and_then(|root| strip_root(root, path))
+        .unwrap_or_else(|| path.to_path_buf());
     Some(relative.to_string_lossy().replace('\\', "/"))
+}
+
+/// `path` relative to `root`, surviving a spelling difference between the two - the path the user
+/// typed reaches a symlinked temp directory on macOS as /var and git's root as /private/var, and
+/// an 8.3 short path on Windows never textually matches the long form git prints.
+fn strip_root(root: &Path, path: &Path) -> Option<PathBuf> {
+    if let Ok(stripped) = path.strip_prefix(root) {
+        return Some(stripped.to_path_buf());
+    }
+    let root = root.canonicalize().ok()?;
+    let path = path.canonicalize().ok()?;
+    path.strip_prefix(&root).ok().map(Path::to_path_buf)
 }
 
 fn scan_one(path: &Path, tiers: Tiers, fix: bool) -> Result<Scanned, String> {
@@ -580,6 +588,19 @@ mod main_test {
         result.binary = false;
         result.invalid = true;
         assert_eq!(file_note(&result), " (not UTF-8, skipped)");
+    }
+
+    #[test]
+    fn strips_across_spelling_differences_or_not_at_all() {
+        let temp = std::env::temp_dir();
+        let outside = temp.join("aiwg-unit-strip-outside");
+        fs::create_dir_all(&outside).expect("create dir");
+        // A root that does not exist cannot be canonicalized.
+        assert_eq!(strip_root(Path::new("aiwg-no-such-root"), &outside), None);
+        // Both real, but neither contains the other.
+        let elsewhere = temp.join("aiwg-unit-strip-elsewhere");
+        fs::create_dir_all(&elsewhere).expect("create dir");
+        assert_eq!(strip_root(&outside, &elsewhere), None);
     }
 
     #[test]
