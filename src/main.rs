@@ -225,60 +225,15 @@ fn select(
     root: Option<&Path>,
     excludes: Option<&GlobSet>,
 ) -> Result<Vec<PathBuf>, String> {
-    let mut selected: BTreeSet<PathBuf> = BTreeSet::new();
-
-    if !cli.paths.is_empty() {
-        // Explicit paths work with no repository at all - `.gitignore` is still respected where
-        // there is one, and the walk never descends into .git.
-        for path in &cli.paths {
-            // `hidden(false)` so dotfiles are scanned - .github/, .gitignore and .husky/ are text
-            // like any other. That also opens .git itself, which holds nothing anyone wrote and
-            // plenty that is not UTF-8, so it is pruned by name.
-            let walk = ignore::WalkBuilder::new(path)
-                .hidden(false)
-                .filter_entry(|entry| entry.file_name() != ".git")
-                .build();
-            for entry in walk {
-                let entry = entry.map_err(|error| error.to_string())?;
-                if entry.file_type().is_some_and(|kind| kind.is_file()) {
-                    selected.insert(entry.into_path());
-                }
-            }
-        }
-    } else {
+    if cli.paths.is_empty() {
         let repo =
             repo.ok_or("not a git repository - pass paths to scan, or run this inside one")?;
         let root = root.ok_or("no repository root")?;
-        let relative = if cli.all {
-            repo.tracked()?
-        } else if cli.staged {
-            repo.staged()?
-        } else if let Some(rev) = &cli.since {
-            repo.changed_since(rev)?
-        } else {
-            let base = repo.merge_base(&cli.branch).ok_or_else(|| {
-                format!(
-                    "no merge-base with '{}' - use --branch, --since or --all",
-                    cli.branch
-                )
-            })?;
-            repo.changed_since(&base)?
-        };
-        for path in relative {
-            if excludes.is_some_and(|globs| globs.is_match(&path)) {
-                continue;
-            }
-            let full = root.join(&path);
-            // A path can be staged or changed and no longer on disk - a deletion.
-            if full.is_file() {
-                selected.insert(full);
-            }
-        }
-        return Ok(selected.into_iter().collect());
+        return select_from_repo(cli, repo, root, excludes);
     }
 
     // Explicit paths are filtered against the same globs, relative to the root when there is one.
-    let filtered = selected
+    let filtered = walk_explicit(&cli.paths)?
         .into_iter()
         .filter(|path| {
             let Some(globs) = excludes else { return true };
@@ -291,6 +246,67 @@ fn select(
         })
         .collect();
     Ok(filtered)
+}
+
+/// Explicit paths work with no repository at all - `.gitignore` is still respected where there is
+/// one, and the walk never descends into .git.
+fn walk_explicit(paths: &[PathBuf]) -> Result<BTreeSet<PathBuf>, String> {
+    let mut selected: BTreeSet<PathBuf> = BTreeSet::new();
+    for path in paths {
+        // `hidden(false)` so dotfiles are scanned - .github/, .gitignore and .husky/ are text
+        // like any other. That also opens .git itself, which holds nothing anyone wrote and
+        // plenty that is not UTF-8, so it is pruned by name.
+        let walk = ignore::WalkBuilder::new(path)
+            .hidden(false)
+            .filter_entry(|entry| entry.file_name() != ".git")
+            .build();
+        for entry in walk {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if entry.file_type().is_some_and(|kind| kind.is_file()) {
+                selected.insert(entry.into_path());
+            }
+        }
+    }
+    Ok(selected)
+}
+
+/// The mode flag decides which repository-relative paths a run considers.
+fn mode_paths(cli: &Cli, repo: &Git) -> Result<Vec<String>, String> {
+    if cli.all {
+        repo.tracked()
+    } else if cli.staged {
+        repo.staged()
+    } else if let Some(rev) = &cli.since {
+        repo.changed_since(rev)
+    } else {
+        let base = repo.merge_base(&cli.branch).ok_or_else(|| {
+            format!(
+                "no merge-base with '{}' - use --branch, --since or --all",
+                cli.branch
+            )
+        })?;
+        repo.changed_since(&base)
+    }
+}
+
+fn select_from_repo(
+    cli: &Cli,
+    repo: &Git,
+    root: &Path,
+    excludes: Option<&GlobSet>,
+) -> Result<Vec<PathBuf>, String> {
+    let mut selected: BTreeSet<PathBuf> = BTreeSet::new();
+    for path in mode_paths(cli, repo)? {
+        if excludes.is_some_and(|globs| globs.is_match(&path)) {
+            continue;
+        }
+        let full = root.join(&path);
+        // A path can be staged or changed and no longer on disk - a deletion.
+        if full.is_file() {
+            selected.insert(full);
+        }
+    }
+    Ok(selected.into_iter().collect())
 }
 
 /// What one file turned into.
@@ -413,48 +429,68 @@ fn report(cli: &Cli, results: &[Scanned], root: Option<&Path>, tiers: Tiers) -> 
     for result in results {
         let name = relative_to(root, &result.path).unwrap_or_default();
         if cli.verbose && result.findings.is_empty() {
-            let note = if result.binary {
-                " (binary, skipped)"
-            } else if result.invalid {
-                " (not UTF-8, skipped)"
-            } else {
-                ""
-            };
-            println!("  {name}{note}");
+            println!("  {name}{}", file_note(result));
         }
         if result.invalid && !cli.verbose {
             eprintln!("aiwg: {name} is not valid UTF-8 and was not scanned.");
         }
-        for finding in &result.findings {
-            if shown == MAX_SHOWN {
-                println!("  ... and {} more", total - shown);
-                shown += 1;
-                break;
-            }
-            if shown < MAX_SHOWN {
-                let hint = rules::banned(char::from_u32(finding.point).unwrap_or('?'))
-                    .map(|rule| {
-                        if rule.replacement.is_empty() {
-                            "delete it".to_string()
-                        } else {
-                            format!("use {}", rule.replacement)
-                        }
-                    })
-                    .unwrap_or_else(|| "cannot be repaired automatically".to_string());
-                let tier = if cli.verbose {
-                    format!(" [{}]", finding.tier.label())
-                } else {
-                    String::new()
-                };
-                println!(
-                    "{name}:{}:{}  {finding} - {hint}{tier}",
-                    finding.line, finding.column
-                );
-                shown += 1;
-            }
-        }
+        print_findings(result, &name, cli.verbose, total, &mut shown);
     }
 
+    print_summary(results, total, tiers);
+    Ok(())
+}
+
+fn file_note(result: &Scanned) -> &'static str {
+    if result.binary {
+        " (binary, skipped)"
+    } else if result.invalid {
+        " (not UTF-8, skipped)"
+    } else {
+        ""
+    }
+}
+
+/// What to do about one finding, from the table's replacement.
+fn hint(finding: &Finding) -> String {
+    rules::banned(char::from_u32(finding.point).unwrap_or('?'))
+        .map(|rule| {
+            if rule.replacement.is_empty() {
+                "delete it".to_string()
+            } else {
+                format!("use {}", rule.replacement)
+            }
+        })
+        .unwrap_or_else(|| "cannot be repaired automatically".to_string())
+}
+
+/// Prints one file's findings, stopping at [`MAX_SHOWN`] across the whole run.
+fn print_findings(result: &Scanned, name: &str, verbose: bool, total: usize, shown: &mut usize) {
+    for finding in &result.findings {
+        if *shown > MAX_SHOWN {
+            return;
+        }
+        if *shown == MAX_SHOWN {
+            println!("  ... and {} more", total - *shown);
+            *shown += 1;
+            return;
+        }
+        let tier = if verbose {
+            format!(" [{}]", finding.tier.label())
+        } else {
+            String::new()
+        };
+        println!(
+            "{name}:{}:{}  {finding} - {}{tier}",
+            finding.line,
+            finding.column,
+            hint(finding)
+        );
+        *shown += 1;
+    }
+}
+
+fn print_summary(results: &[Scanned], total: usize, tiers: Tiers) {
     let scanned = results
         .iter()
         .filter(|result| !result.binary && !result.invalid)
@@ -483,7 +519,6 @@ fn report(cli: &Cli, results: &[Scanned], root: Option<&Path>, tiers: Tiers) -> 
             tier_list.join(", ")
         );
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -500,6 +535,52 @@ mod main_test {
     fn stops_at_the_scissors_line() {
         let text = "subject\n# ------------------------ >8 ------------------------\ndiff --git";
         assert_eq!(message_body(text), "subject");
+    }
+
+    fn finding_at(point: u32, tier: Tier) -> Finding {
+        Finding {
+            line: 1,
+            column: 1,
+            point,
+            name: "test",
+            tier,
+            fixable: tier != Tier::Mojibake,
+        }
+    }
+
+    #[test]
+    fn hints_the_replacement_from_the_table() {
+        let em_dash = finding_at(0x2014, Tier::Punctuation);
+        assert_eq!(hint(&em_dash), "use -");
+    }
+
+    #[test]
+    fn hints_deletion_when_the_replacement_is_empty() {
+        let zero_width_space = finding_at(0x200B, Tier::Invisible);
+        assert_eq!(hint(&zero_width_space), "delete it");
+    }
+
+    #[test]
+    fn hints_no_repair_for_a_point_outside_the_table() {
+        let mojibake = finding_at(0x00C3, Tier::Mojibake);
+        assert_eq!(hint(&mojibake), "cannot be repaired automatically");
+    }
+
+    #[test]
+    fn notes_why_a_file_was_skipped() {
+        let mut result = Scanned {
+            path: PathBuf::from("a"),
+            findings: Vec::new(),
+            binary: false,
+            invalid: false,
+            fixed: false,
+        };
+        assert_eq!(file_note(&result), "");
+        result.binary = true;
+        assert_eq!(file_note(&result), " (binary, skipped)");
+        result.binary = false;
+        result.invalid = true;
+        assert_eq!(file_note(&result), " (not UTF-8, skipped)");
     }
 
     #[test]
