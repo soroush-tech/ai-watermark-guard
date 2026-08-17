@@ -6,24 +6,24 @@
 // so an install pulls a couple of megabytes rather than every target. Nothing is compiled and no
 // install script runs, which is what makes `npx ai-watermark-guard` work from cold and keeps the
 // tool usable in a CI that installs with --ignore-scripts.
-'use strict'
+"use strict";
 
-const { spawnSync } = require('node:child_process')
+const { spawnSync } = require("node:child_process");
 
-const BASE = '@soroush.tech/ai-watermark-guard'
-const { platform, arch } = process
-const binary = platform === 'win32' ? 'aiwg.exe' : 'aiwg'
+const BASE = "@soroush.tech/ai-watermark-guard";
+const { platform, arch } = process;
+const binary = platform === "win32" ? "aiwg.exe" : "aiwg";
 
 // glibc first, musl second. On Alpine the glibc package is not installed at all - the `libc` field
 // tells the package manager to skip it - so the resolve below falls through to the musl build.
-const candidates = [`${BASE}-${platform}-${arch}`]
-if (platform === 'linux') candidates.push(`${BASE}-${platform}-${arch}-musl`)
+const candidates = [`${BASE}-${platform}-${arch}`];
+if (platform === "linux") candidates.push(`${BASE}-${platform}-${arch}-musl`);
 
-let executable = null
+let executable = null;
 for (const candidate of candidates) {
   try {
-    executable = require.resolve(`${candidate}/bin/${binary}`)
-    break
+    executable = require.resolve(`${candidate}/bin/${binary}`);
+    break;
   } catch {
     // Try the next candidate. A miss here is ordinary: only one of them is ever installed.
   }
@@ -35,12 +35,12 @@ if (executable === null) {
   console.error(
     `ai-watermark-guard: no prebuilt binary for ${platform}-${arch}.\n` +
       `Supported: windows x64/arm64, macOS x64/arm64, Linux x64/arm64 (glibc) and x64 (musl).\n` +
-      `Build from source with: cargo install ai-watermark-guard`
-  )
-  process.exit(2)
+      `Build from source with: cargo install ai-watermark-guard`,
+  );
+  process.exit(2);
 }
 
-const result = spawnSync(executable, process.argv.slice(2), { stdio: 'inherit' })
+const result = spawnSync(executable, process.argv.slice(2), { stdio: "inherit" });
 
 // A binary killed by a signal reports no exit code. 2 is this tool's "the run itself failed".
-process.exit(result.status === null ? 2 : result.status)
+process.exit(result.status === null ? 2 : result.status);

@@ -3,10 +3,15 @@
   "private": true,
   "scripts": {
     "prepare": "husky",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "devDependencies": {
     "husky": "^9.1.7",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.78.0",
     "vitest": "^3.2.4"
   }
 }
