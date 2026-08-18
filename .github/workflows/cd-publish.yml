@@ -62,9 +62,21 @@ jobs:
 
       - name: Install cross linkers
         if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'x86_64-unknown-linux-musl'
+        # apt on a hosted runner can stall on a mirror indefinitely - it once sat on this step
+        # until the job's 30 minute ceiling. Short per-fetch timeouts, retries, and a step budget
+        # turn that into a fast, retryable failure.
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
+          apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::ForceIPv4=true"
+          for attempt in 1 2 3; do
+            # --error-on=any: a partially failed index fetch normally still exits 0, which would
+            # skip the retry and leave the install working from stale lists.
+            sudo apt-get update --error-on=any $apt_opts && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep 10
+          done
+          sudo env DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y --no-install-recommends $apt_opts gcc-aarch64-linux-gnu musl-tools
 
       - name: Build
         env:
