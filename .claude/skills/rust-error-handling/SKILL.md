@@ -51,7 +51,7 @@ value
 
 ## Async errors
 
-Errors crossing `.await` boundaries or spawned tasks must be `Send + Sync + 'static`.
+An `.await` point imposes no bounds of its own; the executor boundary does. A future handed to a multithreaded spawn (e.g. `tokio::spawn`) must be `Send + 'static`, so an error held across an `.await` inside it must be `Send + 'static` too. `Sync` is not required.
 
 ## Test your errors
 

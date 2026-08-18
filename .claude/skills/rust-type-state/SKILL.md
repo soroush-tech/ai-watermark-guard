@@ -18,13 +18,15 @@ Encode system **states as types** (not runtime flags/enums) so invalid states an
 ## Core shape
 
 ```rust
+use std::marker::PhantomData;
+
 struct FileNotOpened;
 struct FileOpened;
 
 struct File<State> {
     path: PathBuf,
     handle: Option<std::fs::File>,
-    _state: std::marker::PhantomData<State>,
+    _state: PhantomData<State>,
 }
 
 impl File<FileNotOpened> {

@@ -4,7 +4,7 @@ description: Folder structure and logic-split conventions for this single-crate 
 
 ## Repo layout
 
-```
+```text
 repo/
 ├── Cargo.toml            # one binary crate, no workspace ([[bin]] aiwg)
 ├── src/
@@ -18,7 +18,7 @@ repo/
 ├── npm/                  # publishing wrapper - JS glue, no logic
 │   ├── ai-watermark-guard/   # the wrapper package (bin/cli.js)
 │   └── build.mjs             # assembles per-platform packages into npm/dist (gitignored)
-└── .github/workflows/    # ci.yml (incl. the self-guard job), release.yml
+└── .github/workflows/    # ci.yml (incl. the self-guard job), cd-publish.yml
 ```
 
 - All logic is Rust. Nothing under `npm/` makes a decision the Rust side could

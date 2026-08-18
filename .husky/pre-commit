@@ -1,5 +1,5 @@
-cargo clippy --all-targets -- --deny warnings
+cargo clippy --all-targets --all-features --locked -- --deny warnings
 cargo test --all-targets
-npx oxlint
-npx oxfmt --check
+npm run lint
+npx --no-install oxfmt-quick --staged
 npm test

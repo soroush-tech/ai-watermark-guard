@@ -9,6 +9,9 @@ import { TARGETS, build } from "./build.mjs";
 
 const root = join(import.meta.dirname, "..");
 
+// An explicit comparator, so the ordering never depends on the runtime's default.
+const byName = (a, b) => a.localeCompare(b);
+
 describe("the platform list", () => {
   it("matches the wrapper optionalDependencies", () => {
     const wrapper = JSON.parse(
@@ -16,14 +19,16 @@ describe("the platform list", () => {
     );
     const fromTargets = TARGETS.map(
       (target) => `@soroush.tech/ai-watermark-guard-${target.suffix}`,
-    ).sort();
-    expect(Object.keys(wrapper.optionalDependencies).sort()).toEqual(fromTargets);
+    ).sort(byName);
+    expect(Object.keys(wrapper.optionalDependencies).sort(byName)).toEqual(fromTargets);
   });
 
   it("matches the cd-publish workflow matrix", () => {
     const workflow = readFileSync(join(root, ".github", "workflows", "cd-publish.yml"), "utf8");
-    const fromMatrix = [...workflow.matchAll(/- target: (\S+)/g)].map((match) => match[1]).sort();
-    expect(TARGETS.map((target) => target.rust).sort()).toEqual(fromMatrix);
+    const fromMatrix = [...workflow.matchAll(/- target: (\S+)/g)]
+      .map((match) => match[1])
+      .sort(byName);
+    expect(TARGETS.map((target) => target.rust).sort(byName)).toEqual(fromMatrix);
   });
 });
 

@@ -42,5 +42,7 @@ if (executable === null) {
 
 const result = spawnSync(executable, process.argv.slice(2), { stdio: "inherit" });
 
-// A binary killed by a signal reports no exit code. 2 is this tool's "the run itself failed".
+// status is null when the binary was killed by a signal or could not start at all. 2 is this
+// tool's "the run itself failed".
+if (result.error) console.error(`ai-watermark-guard: ${result.error.message}`);
 process.exit(result.status === null ? 2 : result.status);

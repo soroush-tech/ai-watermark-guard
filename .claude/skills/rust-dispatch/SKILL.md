@@ -35,6 +35,6 @@ When unsure: start with trait-bounded generics; switch to `Box<dyn Trait>` only 
 
 - Prefer `&dyn Trait` over `Box<dyn Trait>` when you don't need ownership.
 - Cross-thread sharing: `Arc<dyn Trait + Send + Sync>`.
-- Don't use `dyn Trait` if the trait has methods returning `Self`.
+- A method returning `Self` needs `where Self: Sized` to keep the trait dyn-compatible; it is then simply not callable through the trait object.
 - **Don't box too early**: `struct Renderer<B: RenderBackend> { backend: B }` beats `backend: Box<dyn RenderBackend>` unless boxing is required (e.g. recursion) or proven beneficial. If a public API must expose `dyn Trait`, box at the boundary, not internally.
-- Object safety - `dyn Trait` requires: no generic methods, no `Self: Sized` bound, and all methods take `&self`/`&mut self`/`self`.
+- Dyn compatibility - `dyn Trait` requires: no generic methods, the trait itself not bound `Self: Sized`, and every dispatchable method taking `&self`, `&mut self`, `self`, `Box<Self>`, `Rc<Self>`, `Arc<Self>`, or `Pin` of one of those. Methods that break a rule can opt out with `where Self: Sized`.

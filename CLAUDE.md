@@ -48,7 +48,7 @@ Transform tasks into verifiable goals: "Fix the bug" -> "Write a test that repro
 
 For multi-step tasks, state a brief plan:
 
-```
+```text
 1. [Step] -> verify: [check]
 2. [Step] -> verify: [check]
 3. [Step] -> verify: [check]
@@ -77,10 +77,10 @@ Single binary crate, no workspace. Edition 2021, MSRV 1.74 - both are deliberate
 
 ## Commands
 
-```
+```shell
 cargo test --all-targets                              # unit tests + end-to-end (tests/cli.rs)
 cargo test <name>                                     # single test by name filter
-cargo clippy --all-targets -- --deny warnings         # lint, exactly as CI runs it
+cargo clippy --all-targets --all-features --locked -- --deny warnings   # lint, exactly as CI runs it
 cargo fmt --check                                     # format gate
 cargo build --release && ./target/release/aiwg --all  # the CI "self" job locally
 cargo llvm-cov                                        # coverage (rule 6)
@@ -100,8 +100,8 @@ One crate, five modules. `src/main.rs` parses the CLI (clap, bin name `aiwg`), r
 - `src/git.rs` - all git plumbing: tracked/staged/changed file lists, merge-base, commit-message ranges, re-staging after `--staged --fix` (partially staged files are fixed but left unstaged, non-zero exit).
 - `src/config.rs` - `.ai-watermark-guard.toml`: `rules` and `exclude` globs (repo-relative, forward slashes). CLI `--rules` wins over the file.
 - `tests/cli.rs` - end-to-end tests of the built binary (`CARGO_BIN_EXE_aiwg`), one temp dir per test. Unit tests sit next to their module: sibling `_test.rs` files wired with `#[path]` (`rules_test.rs`, `config_test.rs`, `files_test.rs`), or an inline `#[cfg(test)] mod <name>_test` while the block still fits a screen (`git.rs`, `main.rs`). Either way the mod name ends in `_test`, so `cargo test _test` selects the whole unit tier.
-- `npm/` - publishing glue, no logic: `npm/ai-watermark-guard` is the wrapper package (`bin/cli.js` execs the platform binary resolved from `optionalDependencies`, one prebuilt package per platform); `npm/build.mjs` assembles the per-target packages into gitignored `npm/dist`. The platform list must stay in sync across `build.mjs` `TARGETS`, the wrapper `package.json` `optionalDependencies`, and the matrix in `release.yml`.
-- `.github/workflows/` - `ci.yml`: fmt, clippy `-D warnings`, tests on the three OSes, plus the `self` job above. `release.yml`: tag-driven (`v*`) - build every target, assemble the npm packages, publish; `workflow_dispatch` gives a dry run.
+- `npm/` - publishing glue, no logic: `npm/ai-watermark-guard` is the wrapper package (`bin/cli.js` execs the platform binary resolved from `optionalDependencies`, one prebuilt package per platform); `npm/build.mjs` assembles the per-target packages into gitignored `npm/dist`. The platform list must stay in sync across `build.mjs` `TARGETS`, the wrapper `package.json` `optionalDependencies`, and the matrix in `cd-publish.yml`.
+- `.github/workflows/` - `ci.yml`: fmt, clippy `-D warnings`, tests on the three OSes, plus the `self` job above. `cd-publish.yml`: `workflow_dispatch` on `main` - build every target, assemble the npm packages, publish, then cut the GitHub Release; `dry_run` (default true) rehearses everything without publishing.
 
 ## Environment quirks
 

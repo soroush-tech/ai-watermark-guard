@@ -10,6 +10,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job runs pull request code; none of them writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -30,7 +34,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Lint
-        run: cargo clippy --all-targets -- --deny warnings
+        run: cargo clippy --all-targets --all-features --locked -- --deny warnings
 
       - name: Test
         run: cargo test --all-targets
@@ -89,7 +93,7 @@ jobs:
       - name: Collect the Clippy report
         run: |
           cargo clean --package ai-watermark-guard
-          cargo clippy --all-targets --message-format=json > clippy-report.json || true
+          cargo clippy --all-targets --all-features --locked --message-format=json > clippy-report.json || true
 
       - name: Install the coverage tooling
         run: |

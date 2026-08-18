@@ -113,9 +113,9 @@ previous `release-notes/*.md` - `0.1.0.md` is the reference.
 ## Cutting the release
 
 1. In **one PR to `main`** (CI must pass): bump `version` in `Cargo.toml` **and** add
-   `release-notes/<version>.md`. There is no local guard hook - the workflow's Resolve step
-   fails without the notes file, and its smoke test fails if the built binary's `--version`
-   disagrees with `Cargo.toml`. Keep the filename equal to the new version by hand.
+   `release-notes/<version>.md`. The pre-commit hook does not check the notes file - the
+   workflow's Resolve step fails without it, and its smoke test fails if the built binary's
+   `--version` disagrees with `Cargo.toml`. Keep the filename equal to the new version by hand.
 2. Dispatch - Actions, **CD - Publish (npm)**, Run workflow on `main` (the publish job
    refuses any other ref). `dry_run` defaults to true and builds + packs everything without
    publishing - run it once as a rehearsal, then again with it unchecked to publish.

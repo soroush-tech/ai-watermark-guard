@@ -59,7 +59,7 @@ mod foo_spec;
 ## Asserting
 
 - `assert!`/`assert_eq!` accept format strings - say what the actual state was and how it differs.
-- Pattern-only checks: since Rust 1.96 prefer `assert_matches!(error, MyError::BadInput(_))` over `assert!(matches!(...))` - it prints the actual value for free.
+- Pattern-only checks: `assert!(matches!(error, MyError::BadInput(_)), "got {error:?}")` - the format argument names the actual value. (`assert_matches!` does that for free, but it needs Rust 1.96 and this crate's MSRV is 1.74.)
 - Helpers: `rstest` (fixtures/cases), `pretty_assertions` (colored diffs).
 - In production code, cheap precondition/postcondition checks can live as `assert!`/`debug_assert!` - they self-verify whether or not the code is under test.
 

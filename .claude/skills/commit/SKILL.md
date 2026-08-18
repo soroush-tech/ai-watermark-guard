@@ -91,9 +91,10 @@ issue open; never close it manually.
 ## Mechanics
 
 - Pass multi-line messages via a file (`git commit -F <file>`).
-- There is no pre-commit hook in this repo; CI runs `cargo fmt --check`,
-  `cargo clippy --all-targets -- --deny warnings`, `cargo test --all-targets`,
-  and the self-guard (`aiwg --all`) on every PR.
+- The `.husky/pre-commit` hook (activated by `npm install`) runs clippy,
+  `cargo test --all-targets`, oxlint, `oxfmt-quick --staged`, and the vitest
+  suite before every commit. CI repeats those gates and adds
+  `cargo fmt --check` and the self-guard (`aiwg --all`) on every PR.
 - Write ASCII punctuation in the message itself. `aiwg --messages` scans commit
   messages, and this repo's own history should pass its own guard.
 - Commits are GPG-signed and signing prompts the user; if a commit fails on the
