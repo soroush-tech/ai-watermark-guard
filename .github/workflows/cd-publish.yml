@@ -69,7 +69,9 @@ jobs:
         run: |
           apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::ForceIPv4=true"
           for attempt in 1 2 3; do
-            sudo apt-get update $apt_opts && break
+            # --error-on=any: a partially failed index fetch normally still exits 0, which would
+            # skip the retry and leave the install working from stale lists.
+            sudo apt-get update --error-on=any $apt_opts && break
             [ "$attempt" = 3 ] && exit 1
             sleep 10
           done
