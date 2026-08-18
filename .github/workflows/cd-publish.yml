@@ -75,8 +75,11 @@ jobs:
             [ "$attempt" = 3 ] && exit 1
             sleep 10
           done
+          # libc6-dev-arm64-cross holds the aarch64 CRT objects (Scrt1.o, crti.o); the gcc
+          # package only Recommends it, and --no-install-recommends skips those.
           sudo env DEBIAN_FRONTEND=noninteractive \
-            apt-get install -y --no-install-recommends $apt_opts gcc-aarch64-linux-gnu musl-tools
+            apt-get install -y --no-install-recommends $apt_opts \
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross musl-tools
 
       - name: Build
         env:
