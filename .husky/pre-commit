@@ -1,5 +1,5 @@
 cargo clippy --all-targets --all-features --locked -- --deny warnings
 cargo test --all-targets
 npm run lint
-npx --no-install oxfmt-quick --staged
+npm run format:staged
 npm test
