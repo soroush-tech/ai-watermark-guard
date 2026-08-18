@@ -1,0 +1,207 @@
+name: CD - Publish (npm)
+
+# Publishes ai-watermark-guard to npm: the seven prebuilt platform packages, then the wrapper that
+# depends on them. Manual dispatch only - never from a push, a tag, or a CI completion. A release is
+# a deliberate act with human-written notes, and the version comes from Cargo.toml rather than from
+# whatever was typed into the dispatch box.
+#
+# Auth is a short-lived id-token minted per run and verified against the npm trusted publisher, so
+# there is no long-lived token in this repository. NODE_AUTH_TOKEN must stay unset: even an empty
+# value makes npm use token auth instead of falling back to OIDC.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and pack everything without publishing
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Builds every target. Runs for a dry run too - a release that fails to cross-compile should fail
+  # here, before anything reaches a registry.
+  build:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The runners ship a Rust toolchain, so only the extra target is added. No third-party action
+      # takes part in producing a binary that gets published.
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install cross linkers
+        if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
+
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Collect the binary
+        shell: bash
+        run: |
+          mkdir -p "artifacts/${{ matrix.target }}"
+          if [ -f "target/${{ matrix.target }}/release/aiwg.exe" ]; then
+            cp "target/${{ matrix.target }}/release/aiwg.exe" "artifacts/${{ matrix.target }}/"
+          else
+            cp "target/${{ matrix.target }}/release/aiwg" "artifacts/${{ matrix.target }}/"
+          fi
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.target }}
+          path: artifacts/
+          retention-days: 1
+
+  publish:
+    needs: build
+    # main-only: a release always comes off the CI-passed main branch, even though the dispatch UI
+    # lets you pick any ref.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: cd-publish
+    timeout-minutes: 20
+    permissions:
+      id-token: write # OIDC token for npm Trusted Publishing (no registry token)
+      contents: write # create the GitHub Release + tag
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download every binary
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: binary-*
+          merge-multiple: true
+
+      # Cargo.toml is the single source of truth. Notes are required before anything is packed, so a
+      # release can never ship without them and npm is never touched when they are missing.
+      - name: Resolve the version and require its notes
+        run: |
+          version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          test -n "$version" || { echo "::error::No version in Cargo.toml"; exit 1; }
+          test -f "release-notes/$version.md" \
+            || { echo "::error::Missing release notes: release-notes/$version.md"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # The wrapper resolves a binary by platform at runtime, so a broken build would only surface
+      # on a user's machine. Run the Linux one here, where this job can see it fail.
+      - name: Smoke-test the binary
+        run: |
+          chmod +x artifacts/x86_64-unknown-linux-gnu/aiwg
+          reported=$(artifacts/x86_64-unknown-linux-gnu/aiwg --version | awk '{print $2}')
+          test "$reported" = "$VERSION" \
+            || { echo "::error::Binary reports $reported, Cargo.toml says $VERSION"; exit 1; }
+          artifacts/x86_64-unknown-linux-gnu/aiwg --all
+
+      - name: Assemble the npm packages
+        run: node npm/build.mjs artifacts "$VERSION"
+
+      - name: Pack only
+        if: ${{ inputs.dry_run }}
+        run: |
+          for dir in npm/dist/*/; do npm pack "$dir" --pack-destination "$RUNNER_TEMP"; done
+          {
+            echo "### Dry run - nothing published"
+            echo ''
+            ls -la "$RUNNER_TEMP"/*.tgz
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Platform packages first: the wrapper depends on them, and a wrapper published against
+      # versions that do not exist yet is broken for anyone who installs in that window. A version
+      # already on the registry is skipped rather than failed, so a rerun can finish a partial
+      # release instead of starting over.
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        run: |
+          publish_one() {
+            dir="$1"
+            name=$(node -p "require('./$dir/package.json').name")
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "Skipped \`$name@$VERSION\` - already on npm." >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+            npm publish "$dir" --access public || return 1
+            echo "Published \`$name@$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Published::$name@$VERSION"
+          }
+
+          failed=""
+          for dir in npm/dist/*/; do
+            dir="${dir%/}"
+            [ "$(basename "$dir")" = "ai-watermark-guard" ] && continue
+            publish_one "$dir" || failed="$failed $(basename "$dir")"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::Platform publish failed for:$failed"
+            exit 1
+          fi
+
+          # Only once every platform package is on the registry.
+          publish_one npm/dist/ai-watermark-guard || { echo "::error::Wrapper publish failed"; exit 1; }
+
+      # Gated on the release not existing rather than on whether npm was newly published in this
+      # run, so a rerun can repair a missing release after a successful publish. A version that
+      # never reached npm is skipped rather than released.
+      - name: Create the GitHub Release
+        if: ${{ !inputs.dry_run && !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$VERSION"
+          if ! npm view "ai-watermark-guard@$VERSION" version >/dev/null 2>&1; then
+            echo "\`$tag\` is not on npm - no GitHub Release created." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release \`$tag\` already exists - skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # --target pins the new tag to the commit this run built; without it a missing tag is
+          # created from the tip of the default branch, which may have moved on meanwhile.
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes-file "release-notes/$VERSION.md"
+          echo "Released \`$tag\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,36 @@
+[package]
+name = "ai-watermark-guard"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Finds and fixes the characters that mark text as machine-written - em dashes, curly quotes, ellipses - plus invisible characters and mojibake, across every file in a repo and in commit messages."
+license = "MIT"
+repository = "https://github.com/soroush-tech/ai-watermark-guard"
+homepage = "https://github.com/soroush-tech/ai-watermark-guard"
+authors = ["Masoud Soroush <masoud@soroush.tech>"]
+keywords = ["lint", "unicode", "mojibake", "git-hook", "text"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+exclude = ["npm/", ".github/"]
+
+[[bin]]
+name = "aiwg"
+path = "src/main.rs"
+
+# Warnings are errors everywhere a build runs, not only where CI passes --deny warnings.
+[lints.clippy]
+all = "deny"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+globset = "0.4"
+ignore = "0.4"
+rayon = "1.10"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

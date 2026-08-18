@@ -1,0 +1,96 @@
+name: Bug report 🐛
+description: Something ai-watermark-guard did that it should not have.
+labels: ['status: needs triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please give the issue a searchable title above ⬆️
+
+        Thanks for taking the time to report this! ❤️
+
+  - type: checkboxes
+    attributes:
+      label: Duplicates
+      description: Please [search the existing issues](https://github.com/soroush-tech/ai-watermark-guard/issues) first.
+      options:
+        - label: I have searched the existing issues
+          required: true
+
+  - type: checkboxes
+    attributes:
+      label: Latest version
+      description: Please confirm the problem is still there on the newest release.
+      options:
+        - label: I have reproduced this on the latest version of `ai-watermark-guard`
+          required: true
+
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What did aiwg do, and what did you expect instead?
+      placeholder: |
+        I ran `aiwg --staged --fix` in a pre-commit hook and it ...
+        I expected it to ...
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Reproduction
+      description: |
+        The git state matters more than anything else here. Which files were tracked,
+        staged, or edited on top, and what command did you run? Name a triggering
+        character by its code point (e.g. U+2014) rather than pasting it.
+      placeholder: |
+        1. git add README.md
+        2. edit README.md again without staging
+        3. npx ai-watermark-guard --staged --fix
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Output
+      description: The full terminal output, including the exit code. Paste it as text, not a screenshot.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: ai-watermark-guard version
+      description: The output of `aiwg --version`.
+      placeholder: '0.1.0'
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Install method
+      options:
+        - npm (prebuilt binary)
+        - cargo install
+        - built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Operating system
+      description: Path handling and process spawning differ most on Windows, so this is worth knowing.
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: git version
+      description: The output of `git --version` - aiwg drives git for everything except explicit paths.
+      placeholder: 'git version 2.47.0'
+    validations:
+      required: true

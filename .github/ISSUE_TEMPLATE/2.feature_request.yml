@@ -1,0 +1,51 @@
+name: Feature request 💡
+description: Suggest something ai-watermark-guard should do.
+labels: ['status: needs triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please give the request a searchable title above ⬆️
+
+        Worth knowing before you write: some behaviours are deliberate, not missing
+        features. `--fix` never rewrites code files - only prose and commit messages;
+        mojibake is reported but never fixed, because the original bytes cannot be
+        recovered; and ZWNJ, ZWJ, LRM and RLM are never flagged - Persian, emoji
+        sequences and bidi text need them.
+
+  - type: checkboxes
+    attributes:
+      label: Duplicates
+      description: Please [search the existing issues](https://github.com/soroush-tech/ai-watermark-guard/issues) first.
+      options:
+        - label: I have searched the existing issues
+          required: true
+
+  - type: textarea
+    attributes:
+      label: The problem
+      description: What are you trying to do that is awkward or impossible today?
+      placeholder: When I ..., I have to ... because ...
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Proposed solution
+      description: What should it do instead? A flag name and its behaviour is ideal.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Alternatives considered
+      description: Anything you tried, or other ways this could work.
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this
+          required: false

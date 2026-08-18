@@ -1,0 +1,19 @@
+{
+  "name": "ai-watermark-guard-repo",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "test": "vitest run",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "format:staged": "oxfmt-quick --staged"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "oxfmt": "^0.63.0",
+    "oxfmt-quick": "^1.0.0",
+    "oxlint": "^1.78.0",
+    "vitest": "^3.2.4"
+  }
+}
