@@ -16,7 +16,7 @@ on:
         description: Build and pack everything without publishing
         required: true
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: publish

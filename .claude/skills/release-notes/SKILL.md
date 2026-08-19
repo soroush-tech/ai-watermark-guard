@@ -117,8 +117,8 @@ previous `release-notes/*.md` - `0.1.0.md` is the reference.
    workflow's Resolve step fails without it, and its smoke test fails if the built binary's
    `--version` disagrees with `Cargo.toml`. Keep the filename equal to the new version by hand.
 2. Dispatch - Actions, **CD - Publish (npm)**, Run workflow on `main` (the publish job
-   refuses any other ref). `dry_run` defaults to true and builds + packs everything without
-   publishing - run it once as a rehearsal, then again with it unchecked to publish.
+   refuses any other ref). A plain dispatch publishes; check `dry_run` to rehearse first -
+   it builds + packs everything without touching a registry.
 3. The job publishes the seven platform packages first, then the wrapper, then cuts a GitHub
    Release tagged `v<version>` from the notes file. A version already on npm is skipped, and
    a rerun repairs a missing GitHub Release without republishing.
